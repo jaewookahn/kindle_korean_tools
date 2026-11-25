@@ -19,12 +19,12 @@ EPUB CSS가 라틴 전용 폰트를 지정하면 킨들이 한글을 내장 bitm
 
 ## 2. Fetch Page Count
 
-선택 도서의 페이지수를 알라딘 / Google Books에서 가져와 커스텀 컬럼에 저장.
+선택 도서의 페이지수를 Yes24 / Google Books에서 가져와 커스텀 컬럼에 저장. (알라딘 OpenAPI는 2026-10-30 종료 → v1.4.0에서 제거)
 
 ### 구조
 
 - 단일 zip에 `InterfaceActionBase` + `InterfaceAction` 함께 (`actual_plugin='calibre_plugins.fetch_page_count:FetchPageCountAction'`)
-- 설정은 `JSONConfig('plugins/fetch_page_count')` → TTB 키 + 컬럼명. 변경 후 재시작 불필요
+- 설정은 `JSONConfig('plugins/fetch_page_count')` → `google_key`(선택) + 컬럼명. 변경 후 재시작 불필요
 - 툴바 액션의 첫 클릭 시 메뉴(`페이지수 가져오기` + `설정...`)를 build & attach
 - 책 선택은 `library_view.selectionModel().selectedRows()` → `model.id(row.row())` (book_id 반환). **`currentIndex()` 폴백은 쓰지 않음** — 의도하지 않은 책을 가져옴
 
@@ -38,20 +38,23 @@ EPUB CSS가 라틴 전용 폰트를 지정하면 킨들이 한글을 내장 bitm
 
 ### 페이지 조회 전략
 
-한글 도서 → 알라딘 우선 / 영문 → Google 우선. `_has_hangul()`로 판정.
+**Google 키 없음 → Yes24만 사용** (기본 세팅). 키 있음 → 한글 도서 Yes24 우선 / 영문 Google 우선. `_has_hangul()`로 판정. 결과에 출처 표시 (`Yes24·ISBN`, `Yes24·제목` 등).
 
-알라딘:
-1. `ItemLookUp` by ISBN13 → eBook이면 `subInfo.paperBookList`의 종이책 ISBN/ItemId로 재조회 (eBook에는 `itemPage` 없음)
-2. `ItemSearch` by Title (상위 3개 ItemId) → 각각 `ItemLookUp`으로 페이지수 (ItemSearch 자체는 `subInfo`가 비어있음)
-3. 스크래핑 (현재 알라딘 페이지 구조 변경으로 거의 안 됨)
+Yes24 (스크래핑, 키 불필요 — robots.txt 상 `/Product/Search`, `/Product/Goods/` 허용):
+1. `Product/Search?domain=ALL&query=<ISBN>` → `data-goods-no` → `Product/Goods/<id>`의 `쪽수, 무게, 크기` 행
+2. eBook 상품이면 `formatLnk` "종이책" 링크로 이동해 재조회 (eBook에는 쪽수 없음)
+3. ISBN 실패/없음 → 제목(부제 `_ : - (` 앞까지) + 저자 검색. 후보는 **접두 일치**만 인정 (부분 포함은 오탐), 출판사 일치 +3, 제목 완전일치 +2, 한글 저자 일치 +1, 종이책 +1, 파생판(청소년·요약·큰글자·Young Readers 등) −3. 상위 3개 조회
+- 영문 저자는 Yes24가 한글 음차("월터 아이작슨")로 표기 → 외서에서 저자 비교 안 함
+- 제목 검색은 판본이 여러 개면 다른 판 쪽수가 들어갈 수 있음 (예: 장미의 이름 1018 vs 912)
 
 Google Books:
-- `q=isbn:...` 또는 `q=intitle:"..." inauthor:"..."` 검색, `pageCount` 있는 첫 결과 반환
-- **무인증 IP 쿼터가 작음** — 429 한 번 받으면 세션 내 더 호출 안 함
+- `q=isbn:...` 또는 `q=intitle:"..." inauthor:"..."` (`urlencode`로 인코딩), `pageCount` 있는 첫 결과 반환
+- **무인증 호출은 전 세계 공용 프로젝트 쿼터**(`project_number:624717413613`)를 나눠 씀 → 거의 항상 429. API 키 필수
+- 키가 있을 때만 호출. 429 한 번 받으면 그 실행 동안 더 호출 안 함 (`_reset_session()`으로 실행마다 초기화)
 
 ### 사용자 미발견 결과
 
-책당 한 줄: `· 제목 — 사유` (사유 예: `Google 쿼터 초과`, `알라딘/Google 모두 결과 없음`, `ISBN/제목 없음`)
+책당 한 줄: `· 제목 — 사유` (사유는 소스별: `Yes24 결과 없음`, `Google 쿼터 초과 (설정에서 API 키 입력 필요)`, `Google API 키 오류 (400)`, `ISBN/제목 없음`)
 
 ## 파일 구조
 
@@ -79,5 +82,6 @@ zip을 `~/Library/Preferences/calibre/plugins/`에 직접 복사하는 건 안 �
 ## 제한사항
 
 - 킨들 KFX 렌더러의 `local()` CSS 함수 지원 여부 불확실 → 안 되면 폰트 직접 임베드 필요
-- 알라딘 상품 페이지 HTML이 JS 로딩으로 변경됨 → `_al_scrape`, `_al_search`는 사실상 무력. TTB API 사용 필수
+- 알라딘 OpenAPI 2026-10-30 종료 (모든 호출이 `errorCode 999`). 조사·대안 비교: `PAGE_COUNT_SOURCES.md`
+- Yes24는 스크래핑이라 HTML 구조가 바뀌면 깨짐 — 셀렉터: `data-goods-no`, `gd_res`, `gd_name`, `info_auth`, `info_pub`, `쪽수[^<]*</th>`
 - Google Books 무인증 쿼터 한계 — API 키 발급(Books API 활성화) 시 일일 1000건 무료

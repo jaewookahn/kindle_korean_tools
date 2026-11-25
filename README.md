@@ -5,7 +5,7 @@
 | 플러그인 | 용도 |
 |----------|------|
 | **Korean Font Fallback Fixer** | EPUB → KFX 변환 시 CSS에 한국어 폰트 폴백 주입 |
-| **Fetch Page Count** | 알라딘 / Google Books에서 페이지수를 가져와 커스텀 컬럼에 저장 |
+| **Fetch Page Count** | Yes24 / Google Books에서 페이지수를 가져와 커스텀 컬럼에 저장 |
 
 ---
 
@@ -61,28 +61,32 @@ EPUB3 nav의 `<nav epub:type="page-list">`와 NCX의 `<pageList>`도 함께 제�
 
 ## 2. Fetch Page Count
 
-선택한 도서의 페이지수를 알라딘과 Google Books에서 자동으로 가져와 사용자 정의 컬럼에 저장.
+선택한 도서의 페이지수를 Yes24와 Google Books에서 자동으로 가져와 사용자 정의 컬럼에 저장.
+
+> 알라딘 OpenAPI는 2026-10-30 서비스 종료로 v1.4.0부터 제거됐습니다.
 
 ### 동작 방식
 
-- **한글 도서**: 알라딘 우선 (ISBN API → 제목 API → 스크래핑) → Google Books 폴백
-- **영문/기타**: Google Books 우선 → 알라딘 폴백
-- **eBook ISBN**: 알라딘이 종이책으로 자동 리다이렉트 (`paperBookList`에서 종이책 ISBN/ItemId 추출 후 재조회) — eBook은 `itemPage`가 없음
-- **Google 429 (쿼터 초과)**: 한 번 감지하면 그 세션에서는 더 호출하지 않음
+- **기본 (Google 키 없음)**: Yes24만 사용 — 한글·영문 모두
+- **Google 키 입력 시 한글 도서**: Yes24 우선 (ISBN 검색 → 제목+저자 검색, 출판사로 판본 매칭) → Google Books 폴백
+- **Google 키 입력 시 영문/기타**: Google Books 우선 → Yes24(외서) 폴백
+- **eBook**: Yes24 eBook 상품이면 연결된 종이책 상품의 쪽수 사용
+- **Google 429 (쿼터 초과)**: 한 번 감지하면 그 실행 동안 더 호출하지 않음
+- 결과에 출처 표시 (예: `360쪽 (Yes24·ISBN)`) — `제목` 출처는 판본이 다를 수 있음
 - 현재 정렬 상태 무시하고 그리드에서 실제 선택된 책의 ID를 정확히 인식
 
 ### 설치
 
 1. Calibre → **Preferences > Plugins > Load plugin from file** → `fetch_page_count.zip`
 2. 사용자 정의 컬럼 추가 (예: `pages`, 텍스트 또는 정수 타입)
-3. 툴바의 **페이지수 가져오기** 버튼 옆 드롭다운 → **설정...** → 알라딘 TTB 키 / 컬럼 이름 입력
-4. TTB 키 발급: https://blog.aladin.co.kr/openapi (한글책 정확도 크게 향상)
+3. 툴바의 **페이지수 가져오기** 버튼 옆 드롭다운 → **설정...** → Google API 키(선택) / 컬럼 이름 입력
+4. Google API 키: Google Cloud Console → Books API 활성화 → 사용자 인증 정보 → API 키 (무료, 일일 1000건). 비워 두면 Yes24만 사용
 
 ### 사용
 
 라이브러리에서 책 선택 → 툴바 **페이지수 가져오기** 클릭 → 결과 다이얼로그가 업데이트 / 미발견 권수 표시.
 
-미발견된 책은 사유와 함께 표시 (`Google 쿼터 초과`, `알라딘/Google 모두 결과 없음` 등).
+미발견된 책은 사유와 함께 표시 (`Yes24 결과 없음`, `Google 쿼터 초과 (설정에서 API 키 입력 필요)` 등).
 
 ---
 
@@ -100,7 +104,8 @@ zip -j fetch_page_count.zip fetch_page_count/__init__.py fetch_page_count/plugin
 - 킨들 KFX 렌더러의 `local()` CSS 함수 지원이 공식 확인되지 않음
 - KFX 포맷은 Calibre를 통한 폰트 임베딩이 불안정 (AZW3가 더 안정적)
 - 탈옥 후 시스템 폰트(`/opt/amazon/ebook/fonts/`)를 교체하는 방법이 가장 근본적인 해결책
-- Google Books 무인증 호출은 IP 단위 일일 쿼터가 작음 — API 키 발급 권장
+- Google Books 무인증 호출은 전 세계 공용 쿼터라 거의 항상 429 — API 키 발급 권장
+- Yes24 조회는 웹페이지 스크래핑이라 사이트 구조가 바뀌면 동작하지 않을 수 있음
 
 ## 라이선스
 
